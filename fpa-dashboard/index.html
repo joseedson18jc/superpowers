@@ -23,8 +23,8 @@ body::after{width:450px;height:450px;bottom:-140px;right:-80px;background:radial
 header{position:sticky;top:0;z-index:100;height:112px;padding:0 28px;display:flex;align-items:center;justify-content:space-between;background:rgba(3,5,8,.85);backdrop-filter:blur(30px) saturate(1.4);-webkit-backdrop-filter:blur(30px) saturate(1.4);border-bottom:1px solid rgba(255,255,255,.03)}
 .logo{display:flex;align-items:center;gap:28px}.logo svg{height:40px;width:auto}
 .logo-sep{width:1px;height:40px;background:rgba(255,255,255,.06)}
-.logo h1{font-size:26px;font-weight:600}.logo h1 b{font-weight:700;background:linear-gradient(135deg,var(--teal),var(--violet));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.logo small{display:block;font-size:16px;color:var(--t3);letter-spacing:4px;text-transform:uppercase;font-weight:500;margin-top:2px}
+.logo h1{font-size:8.7px;font-weight:600}.logo h1 b{font-weight:700;background:linear-gradient(135deg,var(--teal),var(--violet));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.logo small{display:block;font-size:5.3px;color:var(--t3);letter-spacing:4px;text-transform:uppercase;font-weight:500;margin-top:2px}
 .pbadge{font-family:var(--mono);font-size:10px;font-weight:600;padding:5px 14px;border-radius:20px;background:rgba(41,206,192,.12);border:1px solid rgba(41,206,192,.18);color:var(--teal)}
 .keys-hint{font-size:8px;color:var(--t3);margin-left:10px;opacity:.5}
 .theme-toggle{height:30px;padding:0 12px;border:1px solid rgba(41,206,192,.26);border-radius:16px;background:rgba(41,206,192,.10);color:var(--t1);font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.6px;cursor:pointer;transition:all .2s var(--e)}
@@ -103,6 +103,12 @@ table.tb{width:100%;border-collapse:collapse}.tb th{text-align:left;padding:7px 
 .ai-field{height:30px;min-width:128px;padding:0 10px;border:1px solid rgba(255,255,255,.15);border-radius:8px;background:rgba(3,5,8,.56);color:var(--t1);font-family:var(--mono);font-size:9px;outline:none}
 .ai-field::placeholder{color:var(--t3)}
 .ai-field:focus{border-color:rgba(41,206,192,.46);box-shadow:0 0 0 2px rgba(41,206,192,.12)}
+.ai-key-hidden{display:none!important}
+.ai-key-btn{height:30px;padding:0 10px;border:1px solid rgba(41,206,192,.3);border-radius:8px;background:rgba(41,206,192,.08);color:var(--t1);font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.6px;cursor:pointer;transition:all .2s var(--e)}
+.ai-key-btn:hover{background:rgba(41,206,192,.18);border-color:rgba(41,206,192,.46)}
+.ai-key-btn.clear{border-color:rgba(226,77,101,.3);background:rgba(226,77,101,.08)}
+.ai-key-btn.clear:hover{background:rgba(226,77,101,.2);border-color:rgba(226,77,101,.48)}
+.ai-key-hint{margin-top:7px;font-size:8px;color:var(--t3);line-height:1.5}
 .ai-quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
 .ai-q{height:24px;padding:0 10px;border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(255,255,255,.04);color:var(--t2);font-size:8px;font-weight:700;letter-spacing:.6px;cursor:pointer;transition:all .2s var(--e)}
 .ai-q:hover{border-color:rgba(41,206,192,.35);background:rgba(41,206,192,.12);color:var(--t1)}
@@ -126,6 +132,8 @@ table.tb{width:100%;border-collapse:collapse}.tb th{text-align:left;padding:7px 
 body.theme-day .ai-live-badge{background:rgba(15,43,79,.08);border-color:rgba(15,43,79,.18);color:#0e4b73}
 body.theme-day .ai-assistant{background:linear-gradient(135deg,rgba(41,206,192,.12),rgba(147,50,142,.09));border-color:rgba(15,43,79,.2)}
 body.theme-day .ai-field,body.theme-day .ai-input,body.theme-day .ai-chat-log{background:rgba(255,255,255,.96);color:var(--t1);border-color:rgba(15,43,79,.18)}
+body.theme-day .ai-key-btn{background:rgba(15,43,79,.05);border-color:rgba(15,43,79,.22)}
+body.theme-day .ai-key-btn.clear{background:rgba(226,77,101,.08);border-color:rgba(226,77,101,.24)}
 body.theme-day .ai-q{background:rgba(15,43,79,.04);border-color:rgba(15,43,79,.14)}
 body.theme-day .ai-chat-empty{border-color:rgba(15,43,79,.2)}
 body.theme-day .ai-msg.user{background:rgba(41,206,192,.13);border-color:rgba(41,206,192,.25)}
@@ -177,14 +185,17 @@ body.theme-day .wm{color:rgba(15,43,79,.48)}
         <div class="ai-assistant-title">Pergunte diretamente sobre os n&uacute;meros do dashboard</div>
         <div class="ai-assistant-controls">
           <select id="aiProvider" class="ai-field" aria-label="Provedor de IA">
-            <option value="local">IA Local (sem chave)</option>
-            <option value="openai">GPT (OpenAI)</option>
+            <option value="openai">GPT (OpenAI) &middot; padr&atilde;o</option>
             <option value="gemini">Gemini (Google)</option>
+            <option value="local">IA Local (fallback)</option>
           </select>
-          <input id="aiModel" class="ai-field" placeholder="Modelo (opcional)" value="analyst-local-v1" />
-          <input id="aiApiKey" type="password" class="ai-field" placeholder="API key (somente sess&atilde;o)" />
+          <input id="aiModel" class="ai-field" placeholder="Modelo (opcional)" value="gpt-4o-mini" />
+          <input id="aiApiKey" type="password" class="ai-field ai-key-hidden" placeholder="API key oculta" />
+          <button type="button" class="ai-key-btn" onclick="manageAiApiKey()">Configurar chave</button>
+          <button type="button" class="ai-key-btn clear" onclick="clearAiApiKey()">Limpar chave</button>
         </div>
       </div>
+      <div id="aiKeyHint" class="ai-key-hint">Chave de API oculta. Configure uma vez para manter permanentemente neste navegador.</div>
       <div class="ai-quick">
         <button type="button" class="ai-q" onclick="askQuickAI('Qual o principal risco de caixa no período selecionado?')">Risco de caixa</button>
         <button type="button" class="ai-q" onclick="askQuickAI('Quais produtos mais puxam o faturamento e qual o impacto no gap?')">Top produtos e gap</button>
@@ -304,6 +315,7 @@ document.getElementById('corrBridge').innerHTML='<strong>App R$ '+BRLm(CORR.supe
 if(typeof Chart==='undefined' || !Array.isArray(window.D)) return;
 var aiHorizon=3,AIConv=null,AIGap=null,AIForecast=null;
 var aiChatBusy=false,aiChatHistory=[],AI_CHAT_LIMIT=18;
+var AI_KEY_PREFIX='fpa_dashboard_ai_key_';
 function aiMoney(v){return'R$ '+Number(v||0).toLocaleString('pt-BR',{maximumFractionDigits:0})}
 function aiSigned(v){return(v>=0?'+':'-')+'R$ '+Math.abs(Number(v||0)).toLocaleString('pt-BR',{maximumFractionDigits:0})}
 function aiMean(arr){if(!arr.length)return 0;var s=0;for(var i=0;i<arr.length;i++)s+=arr[i];return s/arr.length}
@@ -325,11 +337,18 @@ function aiSetStatus(text,kind){var el=$('aiStatus');if(!el)return;el.textConten
 function aiRenderChat(){var log=$('aiChatLog');if(!log)return;if(!aiChatHistory.length){log.innerHTML='<div class="ai-chat-empty">Use o campo abaixo para perguntar sobre tendências, riscos, gaps ou previsões. Você pode usar IA Local sem chave ou conectar GPT/Gemini.</div>';return}log.innerHTML=aiChatHistory.map(function(m){return'<div class="ai-msg '+(m.role==='user'?'user':'assistant')+'"><div class="ai-msg-meta"><span>'+aiEsc(m.engine||'IA')+'</span><span>'+aiEsc(m.at)+'</span></div><div class="ai-msg-body">'+aiEsc(m.text)+'</div></div>'}).join('');log.scrollTop=log.scrollHeight}
 function aiPush(role,text,engine){var now=new Date(),stamp=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');aiChatHistory.push({role:role,text:text,engine:engine,at:stamp});if(aiChatHistory.length>AI_CHAT_LIMIT)aiChatHistory=aiChatHistory.slice(aiChatHistory.length-AI_CHAT_LIMIT);aiRenderChat()}
 function aiDefaultModel(provider){if(provider==='openai')return'gpt-4o-mini';if(provider==='gemini')return'gemini-2.0-flash';return'analyst-local-v1'}
+function aiProviderLabel(provider){if(provider==='openai')return'GPT/OpenAI';if(provider==='gemini')return'Gemini';return'IA Local'}
+function aiStorageKey(provider){return AI_KEY_PREFIX+String(provider||'')}
+function aiLoadStoredKey(provider){try{return localStorage.getItem(aiStorageKey(provider))||''}catch(e){return''}}
+function aiSaveStoredKey(provider,key){try{if(key)localStorage.setItem(aiStorageKey(provider),key);else localStorage.removeItem(aiStorageKey(provider))}catch(e){}}
+function aiRefreshKeyHint(provider){var hint=$('aiKeyHint');if(!hint)return;if(provider==='local'){hint.textContent='Modo local ativo: sem API key.';return}var has=!!aiLoadStoredKey(provider);hint.textContent=has?'Chave de '+aiProviderLabel(provider)+' salva localmente e mantida oculta.':'Nenhuma chave salva para '+aiProviderLabel(provider)+'.'}
+window.manageAiApiKey=function(){var providerEl=$('aiProvider'),keyEl=$('aiApiKey');var provider=providerEl?providerEl.value:'openai';if(provider==='local'){aiSetStatus('Modo local não exige API key.', 'warn');aiRefreshKeyHint(provider);return}var value=window.prompt('Cole a API key de '+aiProviderLabel(provider)+' (será salva somente neste navegador e mantida oculta):','');if(value===null){aiSetStatus('Configuração da chave cancelada.', 'warn');return}value=String(value||'').trim();if(!value){aiSetStatus('Nenhuma chave informada.', 'warn');return}aiSaveStoredKey(provider,value);if(keyEl)keyEl.value=value;aiRefreshKeyHint(provider);aiSetStatus('Chave de '+aiProviderLabel(provider)+' salva localmente e oculta.', 'ok')}
+window.clearAiApiKey=function(){var providerEl=$('aiProvider'),keyEl=$('aiApiKey');var provider=providerEl?providerEl.value:'openai';if(provider==='local'){aiSetStatus('Modo local não utiliza chave.', 'warn');return}aiSaveStoredKey(provider,'');if(keyEl)keyEl.value='';aiRefreshKeyHint(provider);aiSetStatus('Chave de '+aiProviderLabel(provider)+' removida.', 'warn')}
 async function aiCallOpenAI(question,s,key,model){var prompt='Você é um analista financeiro sênior. Responda em pt-BR, de forma objetiva, sem inventar dados além do contexto.\n\nContexto do dashboard:\n'+aiSnapshotText(s)+'\n\nPergunta:\n'+question;var res=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:model||'gpt-4o-mini',temperature:0.2,messages:[{role:'system',content:'Analise apenas o contexto fornecido e explique com linguagem executiva.'},{role:'user',content:prompt}]})});if(!res.ok)throw new Error('OpenAI '+res.status);var data=await res.json();var out=data&&data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;return(out||'').trim()}
 async function aiCallGemini(question,s,key,model){var m=model||'gemini-2.0-flash',prompt='Você é um analista financeiro sênior. Responda em pt-BR e use somente o contexto abaixo.\n\n'+aiSnapshotText(s)+'\n\nPergunta:\n'+question,res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(m)+':generateContent?key='+encodeURIComponent(key),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.2}})});if(!res.ok)throw new Error('Gemini '+res.status);var data=await res.json(),parts=data&&data.candidates&&data.candidates[0]&&data.candidates[0].content&&data.candidates[0].content.parts;if(!parts||!parts.length)return'';var txt='';for(var i=0;i<parts.length;i++){if(parts[i]&&parts[i].text)txt+=(txt?'\n':'')+parts[i].text}return txt.trim()}
 window.askDashboardAI=async function(prefilledQuestion){if(aiChatBusy)return;var input=$('aiQuestionInput'),providerEl=$('aiProvider'),modelEl=$('aiModel'),keyEl=$('aiApiKey'),btn=$('aiAskBtn');var q=(prefilledQuestion||(input&&input.value)||'').trim();if(!q){aiSetStatus('Digite uma pergunta para a IA.', 'warn');if(input)input.focus();return}if(input&&!prefilledQuestion)input.value='';var provider=providerEl?providerEl.value:'local',model=modelEl?modelEl.value.trim():'',key=keyEl?keyEl.value.trim():'',snapshot=aiSnapshot();aiPush('user',q,'Você');aiChatBusy=true;if(btn){btn.disabled=true;btn.textContent='Analisando...'}aiSetStatus('Processando pergunta com base no dashboard...', '');try{var answer='';if(provider==='local'){answer=aiLocalAnswer(q,snapshot);aiPush('assistant',answer,'IA Local');aiSetStatus('Resposta gerada pela IA local analítica.', 'ok')}else if(provider==='openai'){if(!key)throw new Error('Informe a API key para usar GPT.');answer=await aiCallOpenAI(q,snapshot,key,model||aiDefaultModel('openai'));if(!answer)throw new Error('Sem conteúdo retornado pelo GPT.');aiPush('assistant',answer,'GPT');aiSetStatus('Resposta gerada por GPT com contexto do dashboard.', 'ok')}else{if(!key)throw new Error('Informe a API key para usar Gemini.');answer=await aiCallGemini(q,snapshot,key,model||aiDefaultModel('gemini'));if(!answer)throw new Error('Sem conteúdo retornado pelo Gemini.');aiPush('assistant',answer,'Gemini');aiSetStatus('Resposta gerada por Gemini com contexto do dashboard.', 'ok')}}catch(err){var fallback=aiLocalAnswer(q,snapshot);aiPush('assistant','Falha no provedor externo ('+(err&&err.message?err.message:'erro')+').\n\nResposta local de contingência:\n'+fallback,'IA Local');aiSetStatus('Sem resposta externa; fallback local aplicado.', 'warn')}finally{aiChatBusy=false;if(btn){btn.disabled=false;btn.textContent='Perguntar IA'}}}
 window.askQuickAI=function(question){var input=$('aiQuestionInput');if(input&&!input.value.trim())input.value=question;return window.askDashboardAI(question)}
-function aiInitAssistant(){if(window.__aiAssistantInited)return;var providerEl=$('aiProvider'),modelEl=$('aiModel'),keyEl=$('aiApiKey'),input=$('aiQuestionInput');function syncProviderUI(){if(!providerEl||!modelEl)return;var p=providerEl.value;if(!modelEl.value||modelEl.dataset.auto==='1'){modelEl.value=aiDefaultModel(p);modelEl.dataset.auto='1'}if(keyEl){keyEl.disabled=(p==='local');keyEl.placeholder=p==='local'?'API key n/a no modo local':'API key (somente sessão)'}}if(providerEl)providerEl.addEventListener('change',syncProviderUI);if(modelEl)modelEl.addEventListener('input',function(){this.dataset.auto='0'});if(input)input.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();window.askDashboardAI()}});syncProviderUI();aiRenderChat();window.__aiAssistantInited=true}
+function aiInitAssistant(){if(window.__aiAssistantInited)return;var providerEl=$('aiProvider'),modelEl=$('aiModel'),keyEl=$('aiApiKey'),input=$('aiQuestionInput');function syncProviderUI(){if(!providerEl||!modelEl)return;var p=providerEl.value;if(!modelEl.value||modelEl.dataset.auto==='1'){modelEl.value=aiDefaultModel(p);modelEl.dataset.auto='1'}if(keyEl){keyEl.disabled=(p==='local');keyEl.value=p==='local'?'':aiLoadStoredKey(p);keyEl.placeholder=p==='local'?'API key n/a no modo local':'API key oculta (persistida localmente)'}aiRefreshKeyHint(p)}if(providerEl)providerEl.addEventListener('change',syncProviderUI);if(modelEl)modelEl.addEventListener('input',function(){this.dataset.auto='0'});if(input)input.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();window.askDashboardAI()}});syncProviderUI();aiRenderChat();window.__aiAssistantInited=true}
 function aiPaint(){var ds=aiSeries(),predFat=aiLinearForecast(ds.fat,aiHorizon),predRec=aiLinearForecast(ds.rec,aiHorizon);aiRenderConversion(ds);aiRenderGap(ds);aiRenderForecast(ds,predFat,predRec);aiRenderInsights(ds,predFat,predRec)}
 window.setAiHorizon=function(months,btn){aiHorizon=Math.max(1,Math.min(12,Number(months)||3));var bs=document.querySelectorAll('.ai-btn');for(var i=0;i<bs.length;i++)bs[i].classList.remove('on');if(btn)btn.classList.add('on');aiPaint()};
 var _render=window.render;if(typeof _render==='function'){window.render=function(){_render();aiPaint()}}aiPaint();aiInitAssistant();
