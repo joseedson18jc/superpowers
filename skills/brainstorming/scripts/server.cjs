@@ -102,6 +102,7 @@ const URL_HOST = process.env.BRAINSTORM_URL_HOST || (HOST === '127.0.0.1' ? 'loc
 const SESSION_DIR = process.env.BRAINSTORM_DIR || '/tmp/brainstorm';
 const CONTENT_DIR = path.join(SESSION_DIR, 'content');
 const STATE_DIR = path.join(SESSION_DIR, 'state');
+const FATURAMENTO_TREND_FILE = process.env.BRAINSTORM_FATURAMENTO_TREND_FILE || path.join(STATE_DIR, 'faturamento-trend.json');
 const SUPERPOWERS_VERSION = readSuperpowersVersion();
 const SUPERPOWERS_BRAND_IMAGE_URL = 'https://primeradiant.com/brand/superpowers-visual-brainstorming-logo.png';
 const TELEMETRY_DISABLE_ENV_VARS = [
@@ -357,10 +358,14 @@ function pathnameOf(url) {
   return q >= 0 ? url.slice(0, q) : url;
 }
 
-function queryKey(url) {
+function queryParamsOf(url) {
   const q = url.indexOf('?');
-  if (q < 0) return null;
-  return new URLSearchParams(url.slice(q + 1)).get('key');
+  if (q < 0) return new URLSearchParams();
+  return new URLSearchParams(url.slice(q + 1));
+}
+
+function queryKey(url) {
+  return queryParamsOf(url).get('key');
 }
 
 function securityHeaders(headers = {}) {
@@ -380,6 +385,46 @@ function isAllowedWebSocketOrigin(req) {
   const host = req.headers.host;
   if (!host) return false;
   return origin === 'http://' + host;
+}
+
+function normalizeTrendPoint(point, index) {
+  const period = point && (
+    point.period ?? point.mes ?? point.month ?? point.date ?? point.label
+  );
+  const faturamentoRaw = point && (
+    point.faturamento ?? point.valor ?? point.value ?? point.amount
+  );
+  const faturamento = Number(faturamentoRaw);
+  if (!Number.isFinite(faturamento)) return null;
+  return {
+    period: String(period ?? index + 1),
+    faturamento
+  };
+}
+
+function readFaturamentoTrendSeries() {
+  if (!fs.existsSync(FATURAMENTO_TREND_FILE)) {
+    return { ok: true, source: 'missing-file', series: [] };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(FATURAMENTO_TREND_FILE, 'utf-8'));
+  } catch (error) {
+    return { ok: false, error: 'invalid JSON in trend file: ' + error.message };
+  }
+
+  const rawSeries = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.series) ? parsed.series : null);
+  if (!rawSeries) {
+    return { ok: false, error: 'trend file must be an array or contain a "series" array' };
+  }
+
+  const series = rawSeries
+    .map((point, index) => normalizeTrendPoint(point, index))
+    .filter(Boolean)
+    .sort((a, b) => String(a.period).localeCompare(String(b.period), 'en'));
+
+  return { ok: true, source: path.basename(FATURAMENTO_TREND_FILE), series };
 }
 
 // ========== HTTP Request Handler ==========
@@ -403,6 +448,33 @@ function handleRequest(req, res) {
   if (req.method === 'GET' && pathname === '/' && keyFromQuery && timingSafeEqualStr(keyFromQuery, TOKEN)) {
     res.writeHead(200, securityHeaders({ 'Content-Type': 'text/html; charset=utf-8' }));
     res.end(bootstrapPage(keyFromQuery));
+  } else if (req.method === 'GET' && pathname === '/api/trends/faturamento') {
+    const trend = readFaturamentoTrendSeries();
+    if (!trend.ok) {
+      res.writeHead(500, securityHeaders({ 'Content-Type': 'application/json; charset=utf-8' }));
+      res.end(JSON.stringify({ error: trend.error }));
+      return;
+    }
+
+    const params = queryParamsOf(req.url);
+    const from = params.get('from');
+    const to = params.get('to');
+
+    let series = trend.series;
+    if (from) {
+      series = series.filter(point => String(point.period) >= from);
+    }
+    if (to) {
+      series = series.filter(point => String(point.period) <= to);
+    }
+
+    res.writeHead(200, securityHeaders({ 'Content-Type': 'application/json; charset=utf-8' }));
+    res.end(JSON.stringify({
+      metric: 'faturamento',
+      series,
+      currency: 'BRL',
+      source: trend.source
+    }));
   } else if (req.method === 'GET' && pathname === '/') {
     const screenFile = getNewestScreen();
     let html = screenFile

@@ -320,6 +320,37 @@ async function runTests() {
       assert(!res.body.includes('"state_dir"'), 'root screen must not include server-info body');
     });
 
+    await test('serves faturamento trend endpoint from backend state', async () => {
+      const trendPath = path.join(STATE_DIR, 'faturamento-trend.json');
+      const trendPayload = {
+        series: [
+          { period: '2024-11', faturamento: 120000.25 },
+          { period: '2024-12', faturamento: 99000.75 },
+          { period: '2025-01', faturamento: 143500.00 }
+        ]
+      };
+      fs.writeFileSync(trendPath, JSON.stringify(trendPayload));
+
+      const res = await fetch(`http://localhost:${TEST_PORT}/api/trends/faturamento`);
+      assert.strictEqual(res.status, 200);
+      assert(res.headers['content-type'].includes('application/json'), 'trend endpoint should return JSON');
+      const body = JSON.parse(res.body);
+      assert.strictEqual(body.metric, 'faturamento');
+      assert.strictEqual(body.currency, 'BRL');
+      assert.strictEqual(body.series.length, 3);
+      assert.strictEqual(body.series[0].period, '2024-11');
+      assert.strictEqual(body.series[0].faturamento, 120000.25);
+    });
+
+    await test('filters faturamento trend endpoint by from/to period', async () => {
+      const res = await fetch(`http://localhost:${TEST_PORT}/api/trends/faturamento?from=2024-12&to=2024-12`);
+      assert.strictEqual(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.strictEqual(body.series.length, 1);
+      assert.strictEqual(body.series[0].period, '2024-12');
+      assert.strictEqual(body.series[0].faturamento, 99000.75);
+    });
+
     await test('returns 404 for non-root paths', async () => {
       const res = await fetch(`http://localhost:${TEST_PORT}/other`);
       assert.strictEqual(res.status, 404);

@@ -6,6 +6,7 @@
 <title>Dashboard FP&amp;A &mdash; Endeavor Brasil 2026</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 *,*::before,*::after { margin:0; padding:0; box-sizing:border-box; }
 
@@ -274,9 +275,9 @@ body::after {
     <div id="ytdBadge" class="ytd-badge">YTD Jan&ndash;Dez</div>
     <button class="export-btn upload-btn" id="uploadDataBtn" onclick="openDataUpload()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      <span>Upload JSON</span>
+      <span>Importar Planilha</span>
     </button>
-    <input id="uploadDataInput" type="file" accept=".json,application/json" hidden onchange="handleDataUpload(event)">
+    <input id="uploadDataInput" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden onchange="handleDataUpload(event)">
     <button class="export-btn" id="exportPdfBtn" onclick="exportPDF()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
       <span id="exportBtnText">PDF</span>
@@ -401,7 +402,7 @@ body::after {
   </div>
   <div class="chart-grid">
     <div class="chart-card glass"><div class="chart-card-title">Or&ccedil;amento &bull; Faturamento &bull; Recebido</div><div class="chart-wrap"><canvas id="chartBar"></canvas></div></div>
-    <div class="chart-card glass"><div class="chart-card-title">% Varia&ccedil;&atilde;o Mensal</div><div class="chart-wrap"><canvas id="chartLine"></canvas></div></div>
+    <div class="chart-card glass"><div class="chart-card-title">Tend&ecirc;ncia Hist&oacute;rica de Faturamento</div><div class="chart-wrap"><canvas id="chartLine"></canvas></div></div>
   </div>
 
   <div class="inad-section">
@@ -886,6 +887,9 @@ var MESES_SHORT = [];
 var selectedMonths = new Set();
 var expandedProduto = null;
 var ytdUpTo = 0;
+var FATURAMENTO_TREND_ENDPOINT = '/api/trends/faturamento';
+var faturamentoTrendSeries = [];
+var faturamentoTrendLoaded = false;
 
 function toCents(v) { return Math.round((Number(v) || 0) * 100); }
 function fromCents(v) { return (Number(v) || 0) / 100; }
@@ -922,6 +926,197 @@ function parseNumberish(v, fallback) {
 function parseCount(v) {
   var n = parseNumberish(v, 0);
   return Math.max(0, Math.round(n || 0));
+}
+
+function pickField(row, aliases) {
+  if(!row || typeof row !== 'object') return '';
+  for(var i=0;i<aliases.length;i++) {
+    var key = aliases[i];
+    if(Object.prototype.hasOwnProperty.call(row, key) && row[key] !== null && row[key] !== undefined && String(row[key]).trim() !== '') {
+      return row[key];
+    }
+  }
+  return '';
+}
+
+function monthPtBr(monthIndex) {
+  return ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][monthIndex] || '';
+}
+
+function parseSpreadsheetDate(value) {
+  if(value === null || value === undefined || value === '') return null;
+  if(typeof value === 'number') {
+    var parsed = XLSX.SSF.parse_date_code(value);
+    if(!parsed) return null;
+    return new Date(parsed.y, parsed.m - 1, parsed.d);
+  }
+  var txt = String(value).trim();
+  if(!txt) return null;
+  var ddmmyyyy = txt.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if(ddmmyyyy) {
+    var day = Number(ddmmyyyy[1]), month = Number(ddmmyyyy[2]) - 1, year = Number(ddmmyyyy[3]);
+    if(year < 100) year += 2000;
+    return new Date(year, month, day);
+  }
+  var iso = new Date(txt);
+  if(!Number.isNaN(iso.getTime())) return iso;
+  return null;
+}
+
+async function sha1Hex(input) {
+  if(!(window.crypto && window.crypto.subtle)) return input;
+  var bytes = new TextEncoder().encode(String(input));
+  var hashBuffer = await window.crypto.subtle.digest('SHA-1', bytes);
+  return Array.from(new Uint8Array(hashBuffer)).map(function(b){ return b.toString(16).padStart(2,'0'); }).join('');
+}
+
+async function workbookToCandidateData(workbook) {
+  var sheetName = workbook.SheetNames.find(function(n){ return String(n).toLowerCase() === 'base de dados'; }) || workbook.SheetNames[0];
+  if(!sheetName) throw new Error('Planilha sem abas.');
+  var rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+  if(!rows.length) throw new Error('Planilha vazia.');
+
+  var availableHeaders = Object.keys(rows[0]).map(function(h){ return String(h).trim().toLowerCase(); });
+  function hasAnyHeader(aliases) {
+    return aliases.some(function(alias){ return availableHeaders.includes(String(alias).trim().toLowerCase()); });
+  }
+  var requiredHeaderGroups = [
+    ['Tipo', 'tipo'],
+    ['Departamento', 'departamento'],
+    ['Categoria', 'categoria'],
+    ['Valor da Conta', 'valor da conta', 'valor_conta'],
+    ['Data de Emissão', 'Data Emissão', 'data_emissao'],
+    ['Data de Vencimento', 'Data Vencimento', 'data_vencimento'],
+    ['Cliente ou Fornecedor (Nome Fantasia)', 'cliente_fornecedor'],
+    ['CNPJ/CPF', 'cnpj_cpf'],
+    ['Tipo do Documento', 'tipo_documento'],
+    ['Situação', 'situacao'],
+    ['Origem', 'origem'],
+    ['Grupo', 'grupo']
+  ];
+  var missingHeaders = requiredHeaderGroups
+    .filter(function(group){ return !hasAnyHeader(group); })
+    .map(function(group){ return group[0]; });
+  if(missingHeaders.length) {
+    throw new Error('Colunas obrigatórias ausentes: ' + missingHeaders.join(', '));
+  }
+
+  var grouped = {};
+  var fatEmpresas = {};
+  var recEmpresas = {};
+  var qualityIssues = [];
+  var dedupeSet = new Set();
+
+  for(var i=0;i<rows.length;i++) {
+    var row = rows[i];
+    var departamento = sanitizeText(pickField(row, ['Departamento', 'departamento']), '');
+    var produto = sanitizeText(pickField(row, ['Produto', 'produto', 'Categoria', 'categoria', 'Grupo', 'grupo']), '');
+    if(!departamento || !produto) qualityIssues.push('Linha ' + (i + 2) + ': Departamento/Produto em branco');
+
+    var tipo = String(pickField(row, ['Tipo', 'tipo'])).toLowerCase();
+    var emissao = parseSpreadsheetDate(pickField(row, ['Data de Emissão', 'Data Emissão', 'data_emissao', 'Data de Emissao']));
+    if(!emissao) continue;
+    var mes = monthPtBr(emissao.getMonth());
+    if(!mes) continue;
+
+    var uniqueKeyBase = [
+      pickField(row, ['Tipo','tipo']),
+      pickField(row, ['CNPJ/CPF','cnpj_cpf']),
+      pickField(row, ['Cliente ou Fornecedor (Nome Fantasia)','Razão Social','Razao Social','cliente_fornecedor']),
+      pickField(row, ['Categoria','categoria']),
+      pickField(row, ['Departamento','departamento']),
+      pickField(row, ['Conta Corrente','conta_corrente']),
+      pickField(row, ['Tipo do Documento','tipo_documento']),
+      pickField(row, ['Número do Documento','Numero do Documento','numero_documento']),
+      pickField(row, ['Parcela','parcela']),
+      pickField(row, ['Data de Emissão','Data Emissão','data_emissao']),
+      pickField(row, ['Data de Vencimento','Data Vencimento','data_vencimento']),
+      pickField(row, ['Valor da Conta','valor_conta'])
+    ].map(function(v){ return String(v || '').trim(); }).join('|');
+    var uniqueKey = await sha1Hex(uniqueKeyBase);
+    if(dedupeSet.has(uniqueKey)) continue;
+    dedupeSet.add(uniqueKey);
+
+    if(!grouped[mes]) grouped[mes] = { orcamento: 0, faturamento: 0, recebido: 0 };
+    var valorConta = parseNumberish(pickField(row, ['Valor da Conta', 'valor_conta']), 0);
+    var valorRecebido = parseNumberish(pickField(row, ['Pago ou Recebido', 'pago_ou_recebido']), 0);
+    var pessoa = sanitizeText(pickField(row, ['CNPJ/CPF', 'cnpj_cpf', 'Cliente ou Fornecedor (Nome Fantasia)', 'cliente_fornecedor']), '');
+
+    if(tipo.includes('receber') || tipo.includes('receita') || tipo.includes('fatur')) {
+      grouped[mes].faturamento += valorConta;
+      if(pessoa) {
+        if(!fatEmpresas[mes]) fatEmpresas[mes] = new Set();
+        fatEmpresas[mes].add(pessoa);
+      }
+    }
+    if(valorRecebido > 0) {
+      grouped[mes].recebido += valorRecebido;
+      if(pessoa) {
+        if(!recEmpresas[mes]) recEmpresas[mes] = new Set();
+        recEmpresas[mes].add(pessoa);
+      }
+    }
+  }
+
+  var orderedMeses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+    .filter(function(m){ return Object.prototype.hasOwnProperty.call(grouped, m); });
+  if(!orderedMeses.length) throw new Error('Nenhum lançamento válido encontrado na planilha.');
+
+  var monthlySummary = orderedMeses.map(function(mes, idx) {
+    var d = grouped[mes];
+    return {
+      mes: mes,
+      mes_idx: idx,
+      orcamento: d.orcamento,
+      faturamento: d.faturamento,
+      recebido: d.recebido,
+      fat_empresas: fatEmpresas[mes] ? fatEmpresas[mes].size : 0,
+      rec_empresas: recEmpresas[mes] ? recEmpresas[mes].size : 0
+    };
+  });
+
+  return {
+    candidate: { monthly_summary: monthlySummary, meses: orderedMeses },
+    qualityIssues: qualityIssues
+  };
+}
+
+function normalizeTrendPayload(payload) {
+  var rawSeries = Array.isArray(payload) ? payload : (payload && Array.isArray(payload.series) ? payload.series : []);
+  return rawSeries.map(function(item, idx){
+    var period = sanitizeText(item && (item.period || item.mes || item.month || item.date || item.label), 'P' + (idx + 1));
+    var faturamento = parseNumberish(item && (item.faturamento ?? item.valor ?? item.amount ?? item.value), NaN);
+    if(!Number.isFinite(faturamento)) return null;
+    return { period: period, faturamento: faturamento };
+  }).filter(Boolean);
+}
+
+function defaultTrendFromData() {
+  return DATA.monthly_summary.map(function(ms){
+    return { period: sanitizeText(ms.mes, ''), faturamento: parseNumberish(ms.faturamento, 0) };
+  });
+}
+
+function loadFaturamentoTrend() {
+  if(typeof fetch === 'undefined') return Promise.resolve(false);
+  return fetch(FATURAMENTO_TREND_ENDPOINT, { credentials: 'include' })
+    .then(function(response){
+      if(!response.ok) throw new Error('status ' + response.status);
+      return response.json();
+    })
+    .then(function(payload){
+      var normalized = normalizeTrendPayload(payload);
+      if(normalized.length) {
+        faturamentoTrendSeries = normalized;
+        faturamentoTrendLoaded = true;
+        return true;
+      }
+      return false;
+    })
+    .catch(function(error){
+      console.warn('Faturamento trend endpoint indisponível:', error.message);
+      return false;
+    });
 }
 
 function hydrateDataGlobals() {
@@ -1042,15 +1237,32 @@ function handleDataUpload(event) {
   var input = event && event.target;
   if(!input || !input.files || !input.files.length) return;
   var file = input.files[0];
+  var lowerName = String(file.name || '').toLowerCase();
+  if(!(lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls'))) {
+    input.value = '';
+    alert('Formato inválido. Envie uma planilha .xlsx ou .xls.');
+    return;
+  }
+  if(typeof XLSX === 'undefined') {
+    input.value = '';
+    alert('Leitor XLSX não carregado. Recarregue a página.');
+    return;
+  }
   var reader = new FileReader();
-  reader.onload = function(loadEvent) {
+  reader.onload = async function(loadEvent) {
     try {
-      var parsed = JSON.parse(String(loadEvent.target && loadEvent.target.result || '{}'));
-      applyData(parsed, true);
-      alert('Dados mensais carregados com sucesso.');
+      var workbook = XLSX.read(loadEvent.target && loadEvent.target.result, { type: 'array', cellDates: true });
+      var result = await workbookToCandidateData(workbook);
+      applyData(result.candidate, true);
+      var msg = 'Dados mensais carregados com sucesso.';
+      if(result.qualityIssues.length) {
+        msg += '\n\nData Quality (não bloqueante):\n- ' + result.qualityIssues.slice(0, 10).join('\n- ');
+        if(result.qualityIssues.length > 10) msg += '\n- ... +' + (result.qualityIssues.length - 10) + ' alerta(s)';
+      }
+      alert(msg);
     } catch(err) {
       console.error(err);
-      alert('Falha ao carregar arquivo. Envie um JSON válido com monthly_summary e meses.');
+      alert('Falha ao carregar a planilha XLSX: ' + err.message);
     } finally {
       input.value = '';
     }
@@ -1059,7 +1271,7 @@ function handleDataUpload(event) {
     input.value = '';
     alert('Não foi possível ler o arquivo selecionado.');
   };
-  reader.readAsText(file, 'utf-8');
+  reader.readAsArrayBuffer(file);
 }
 
 function resetDataUpload() {
@@ -1244,12 +1456,12 @@ function renderBarChart() {
 function renderLineChart() {
   var ctx=document.getElementById('chartLine').getContext('2d');
   if(chartLine) chartLine.destroy();
-  var labels=[],vD=[],rP=[];
-  for(var i=0;i<=ytdUpTo;i++){ labels.push(MESES_SHORT[i]); var ms=DATA.monthly_summary[i],orcC=toCents(ms.orcamento),fatC=toCents(ms.faturamento),recC=toCents(ms.recebido); vD.push(orcC>0?((fatC-orcC)/orcC)*100:0); rP.push(fatC>0?(recC/fatC)*100:0); }
+  var series = (faturamentoTrendLoaded && faturamentoTrendSeries.length) ? faturamentoTrendSeries : defaultTrendFromData();
+  var labels = series.map(function(point){ return point.period; });
+  var values = series.map(function(point){ return fromCents(toCents(point.faturamento)); });
   chartLine=new Chart(ctx,{type:'line',data:{labels:labels,datasets:[
-    {label:'Fat/Orc %',data:vD,borderColor:'rgba(0,198,224,0.85)',backgroundColor:'rgba(0,198,224,0.06)',fill:true,tension:0.45,pointRadius:5,pointBackgroundColor:'#00C6E0'},
-    {label:'Rec/Fat %',data:rP,borderColor:'rgba(52,211,153,0.85)',backgroundColor:'rgba(52,211,153,0.06)',fill:true,tension:0.45,pointRadius:5,pointBackgroundColor:'#34D399'}
-  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#7E8BA8',font:{family:"'Plus Jakarta Sans'",size:11},usePointStyle:true}},tooltip:{backgroundColor:'rgba(12,16,32,0.92)',borderColor:'rgba(255,255,255,0.08)',borderWidth:1,padding:12,cornerRadius:10,callbacks:{label:function(ctx){return ctx.dataset.label+': '+ctx.parsed.y.toFixed(1)+'%';}} } },scales:{x:{ticks:{color:'#3F4A63'},grid:{display:false}},y:{ticks:{color:'#3F4A63',callback:function(v){return v+'%';}},grid:{color:'rgba(255,255,255,0.03)'}}} } });
+    {label:'Faturamento',data:values,borderColor:'rgba(0,198,224,0.9)',backgroundColor:'rgba(0,198,224,0.08)',fill:true,tension:0.35,pointRadius:4,pointBackgroundColor:'#00C6E0'}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#7E8BA8',font:{family:"'Plus Jakarta Sans'",size:11},usePointStyle:true}},tooltip:{backgroundColor:'rgba(12,16,32,0.92)',borderColor:'rgba(255,255,255,0.08)',borderWidth:1,padding:12,cornerRadius:10,callbacks:{label:function(ctx){return ctx.dataset.label+': R$ '+Number(ctx.parsed.y || 0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}} } },scales:{x:{ticks:{color:'#3F4A63'},grid:{display:false}},y:{ticks:{color:'#3F4A63',callback:function(v){return 'R$ '+Number(v).toLocaleString('pt-BR');}},grid:{color:'rgba(255,255,255,0.03)'}}} } });
 }
 
 function renderInadimplencia() {
@@ -1288,6 +1500,9 @@ function exportPDF() {
 function initializeDashboard() {
   hydrateDataGlobals();
   if(!loadStoredData()) render();
+  loadFaturamentoTrend().then(function(updated){
+    if(updated) renderCharts();
+  });
 }
 
 // Only enhance if JS is running - data is already in the HTML
