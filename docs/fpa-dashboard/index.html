@@ -223,6 +223,34 @@ body::after {
 .chart-card { padding: 24px; min-height: 320px; }
 .chart-card-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted); margin-bottom: 18px; }
 .chart-wrap { height: 260px; position: relative; }
+.chart-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.chart-card-head .chart-card-title { margin-bottom: 0; }
+.chart-card.wide { grid-column: 1 / -1; min-height: 340px; }
+.chart-card.wide .chart-wrap { height: 280px; }
+.forecast-controls { display: inline-flex; gap: 6px; }
+.forecast-btn {
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+}
+.forecast-btn:hover { border-color: rgba(124,109,240,0.25); color: var(--text-primary); }
+.forecast-btn.active {
+  background: linear-gradient(135deg, rgba(124,109,240,0.32), rgba(0,198,224,0.25));
+  border-color: rgba(124,109,240,0.5);
+  color: #fff;
+}
+.insight-card { padding: 24px; margin: -10px 0 34px; animation: fadeUp 0.55s var(--ease) 0.32s both; }
+.insight-list { list-style: none; display: grid; gap: 10px; }
+.insight-item { display: flex; align-items: flex-start; gap: 10px; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.insight-bullet { width: 22px; height: 22px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; background: rgba(124,109,240,0.15); border: 1px solid rgba(124,109,240,0.25); }
+.insight-item strong { color: var(--text-primary); font-weight: 600; }
 
 .inad-section { animation: fadeUp 0.55s var(--ease) 0.35s both; }
 .inad-header-card { padding: 24px 30px; margin-bottom: 20px; display: flex; align-items: center; gap: 20px; }
@@ -403,6 +431,23 @@ body::after {
   <div class="chart-grid">
     <div class="chart-card glass"><div class="chart-card-title">Or&ccedil;amento &bull; Faturamento &bull; Recebido</div><div class="chart-wrap"><canvas id="chartBar"></canvas></div></div>
     <div class="chart-card glass"><div class="chart-card-title">Tend&ecirc;ncia Hist&oacute;rica de Faturamento</div><div class="chart-wrap"><canvas id="chartLine"></canvas></div></div>
+    <div class="chart-card glass"><div class="chart-card-title">Convers&atilde;o de Caixa e Inadimpl&ecirc;ncia Mensal</div><div class="chart-wrap"><canvas id="chartConversion"></canvas></div></div>
+    <div class="chart-card glass"><div class="chart-card-title">Gap Mensal (Faturamento vs Or&ccedil;amento e Recebido vs Faturamento)</div><div class="chart-wrap"><canvas id="chartGap"></canvas></div></div>
+    <div class="chart-card glass wide">
+      <div class="chart-card-head">
+        <div class="chart-card-title">Previs&atilde;o Din&acirc;mica de Faturamento e Recebido</div>
+        <div class="forecast-controls">
+          <button type="button" class="forecast-btn active" onclick="setForecastHorizon(3, this)">3M</button>
+          <button type="button" class="forecast-btn" onclick="setForecastHorizon(6, this)">6M</button>
+          <button type="button" class="forecast-btn" onclick="setForecastHorizon(9, this)">9M</button>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="chartForecast"></canvas></div>
+    </div>
+  </div>
+  <div class="insight-card glass">
+    <div class="chart-card-title">Insights Autom&aacute;ticos e Recomenda&ccedil;&otilde;es de Tend&ecirc;ncia</div>
+    <ul class="insight-list" id="insightList"></ul>
   </div>
 
   <div class="inad-section">
@@ -898,6 +943,7 @@ function sumCents(items, picker) { return items.reduce(function(s, item){ return
 function fmt(v) { return 'R$ ' + fromCents(toCents(v)).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fmtPct(v) { return (v>=0?'+':'') + v.toFixed(1).replace('.',',') + '%'; }
 function fmtN(v) { return fromCents(toCents(v)).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtSignedCents(cents) { return (cents >= 0 ? '+' : '-') + 'R$ ' + fmtN(fromCents(Math.abs(cents))); }
 
 function sanitizeText(v, fallback) {
   if(typeof v === 'string') {
@@ -1436,11 +1482,98 @@ function renderDrillRecebido() {
   document.getElementById('drillRecBody').innerHTML=h;
 }
 
-var chartBar=null, chartLine=null;
+var chartBar=null, chartLine=null, chartConversion=null, chartGap=null, chartForecast=null;
+var forecastHorizon = 3;
+
+function getMonthlySeries() {
+  var series = [];
+  for(var i=0;i<=ytdUpTo;i++) {
+    var ms = DATA.monthly_summary[i] || {};
+    var orcC = toCents(ms.orcamento || 0);
+    var fatC = toCents(ms.faturamento || 0);
+    var recC = toCents(ms.recebido || 0);
+    series.push({
+      index: i,
+      label: MESES_SHORT[i] || ('M' + (i + 1)),
+      orcC: orcC,
+      fatC: fatC,
+      recC: recC,
+      inadC: Math.max(0, fatC - recC),
+      conversaoPct: fatC > 0 ? (recC / fatC) * 100 : 0
+    });
+  }
+  return series;
+}
+
+function futureMonthLabel(stepAhead) {
+  var absoluteIndex = ytdUpTo + stepAhead;
+  var monthIdx = ((absoluteIndex % 12) + 12) % 12;
+  var yearJump = Math.floor(absoluteIndex / 12);
+  var baseLabel = MESES_SHORT[monthIdx] || ('M' + (monthIdx + 1));
+  if(yearJump <= 0) return baseLabel;
+  return baseLabel + '/' + String(26 + yearJump).padStart(2, '0');
+}
+
+function linearForecastCents(seriesCents, horizon) {
+  var values = seriesCents.filter(function(v){ return Number.isFinite(v); });
+  if(!values.length) return [];
+  var sample = values.slice(Math.max(0, values.length - 6));
+  if(sample.length === 1) {
+    return Array.from({ length: horizon }, function(){ return Math.max(0, Math.round(sample[0])); });
+  }
+
+  var sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+  for(var i=0;i<sample.length;i++) {
+    var x = i + 1;
+    var y = sample[i];
+    sumX += x;
+    sumY += y;
+    sumXY += x * y;
+    sumXX += x * x;
+  }
+  var n = sample.length;
+  var denominator = (n * sumXX) - (sumX * sumX);
+  var slope = denominator !== 0 ? ((n * sumXY) - (sumX * sumY)) / denominator : 0;
+  var intercept = (sumY - (slope * sumX)) / n;
+
+  var predictions = [];
+  for(var step=1;step<=horizon;step++) {
+    var predicted = intercept + slope * (n + step);
+    if(!Number.isFinite(predicted)) predicted = sample[sample.length - 1];
+    predictions.push(Math.max(0, Math.round(predicted)));
+  }
+  return predictions;
+}
+
+function setForecastHorizon(months, btn) {
+  forecastHorizon = Math.max(1, Math.min(12, Number(months) || 3));
+  document.querySelectorAll('.forecast-btn').forEach(function(el){
+    el.classList.remove('active');
+  });
+  if(btn) {
+    btn.classList.add('active');
+  } else {
+    document.querySelectorAll('.forecast-btn').forEach(function(el){
+      var value = Number(String(el.textContent || '').replace(/\D+/g, ''));
+      if(value === forecastHorizon) el.classList.add('active');
+    });
+  }
+  if(typeof Chart !== 'undefined') renderForecastChart();
+  renderInsights();
+}
+
 function renderCharts() {
-  if(typeof Chart==='undefined') { document.querySelectorAll('.chart-wrap').forEach(function(el){ el.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:12px;">Graficos indispon\u00edveis offline</div>'; }); return; }
+  if(typeof Chart==='undefined') {
+    document.querySelectorAll('.chart-wrap').forEach(function(el){ el.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:12px;">Graficos indispon\u00edveis offline</div>'; });
+    renderInsights();
+    return;
+  }
   try { renderBarChart(); } catch(e) { console.error(e); }
   try { renderLineChart(); } catch(e) { console.error(e); }
+  try { renderConversionChart(); } catch(e) { console.error(e); }
+  try { renderGapChart(); } catch(e) { console.error(e); }
+  try { renderForecastChart(); } catch(e) { console.error(e); }
+  try { renderInsights(); } catch(e) { console.error(e); }
 }
 function renderBarChart() {
   var ctx=document.getElementById('chartBar').getContext('2d');
@@ -1462,6 +1595,172 @@ function renderLineChart() {
   chartLine=new Chart(ctx,{type:'line',data:{labels:labels,datasets:[
     {label:'Faturamento',data:values,borderColor:'rgba(0,198,224,0.9)',backgroundColor:'rgba(0,198,224,0.08)',fill:true,tension:0.35,pointRadius:4,pointBackgroundColor:'#00C6E0'}
   ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#7E8BA8',font:{family:"'Plus Jakarta Sans'",size:11},usePointStyle:true}},tooltip:{backgroundColor:'rgba(12,16,32,0.92)',borderColor:'rgba(255,255,255,0.08)',borderWidth:1,padding:12,cornerRadius:10,callbacks:{label:function(ctx){return ctx.dataset.label+': R$ '+Number(ctx.parsed.y || 0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}} } },scales:{x:{ticks:{color:'#3F4A63'},grid:{display:false}},y:{ticks:{color:'#3F4A63',callback:function(v){return 'R$ '+Number(v).toLocaleString('pt-BR');}},grid:{color:'rgba(255,255,255,0.03)'}}} } });
+}
+
+function renderConversionChart() {
+  var ctx = document.getElementById('chartConversion').getContext('2d');
+  if(chartConversion) chartConversion.destroy();
+  var series = getMonthlySeries();
+  var labels = series.map(function(point){ return point.label; });
+  var conversao = series.map(function(point){ return Number(point.conversaoPct.toFixed(2)); });
+  var inadimplencia = series.map(function(point){ return fromCents(point.inadC); });
+  chartConversion = new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels:labels,
+      datasets:[
+        {type:'line',label:'Conversão de Caixa (%)',data:conversao,yAxisID:'y',borderColor:'rgba(52,211,153,0.95)',backgroundColor:'rgba(52,211,153,0.18)',fill:true,tension:0.35,pointRadius:3,pointBackgroundColor:'#6EE7B7'},
+        {type:'bar',label:'Inadimplência (R$)',data:inadimplencia,yAxisID:'y2',backgroundColor:'rgba(251,113,133,0.30)',borderColor:'rgba(251,113,133,0.70)',borderWidth:1,borderRadius:8}
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{labels:{color:'#7E8BA8',font:{family:"'Plus Jakarta Sans'",size:11},usePointStyle:true}},
+        tooltip:{backgroundColor:'rgba(12,16,32,0.92)',borderColor:'rgba(255,255,255,0.08)',borderWidth:1,padding:12,cornerRadius:10,callbacks:{label:function(ctx){
+          if(ctx.dataset.yAxisID === 'y') return ctx.dataset.label + ': ' + Number(ctx.parsed.y || 0).toFixed(1).replace('.', ',') + '%';
+          return ctx.dataset.label + ': R$ ' + Number(ctx.parsed.y || 0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2});
+        }}}
+      },
+      scales:{
+        x:{ticks:{color:'#3F4A63'},grid:{display:false}},
+        y:{position:'left',ticks:{color:'#3F4A63',callback:function(v){ return Number(v).toFixed(0) + '%'; }},grid:{color:'rgba(255,255,255,0.03)'}},
+        y2:{position:'right',ticks:{color:'#3F4A63',callback:function(v){ return 'R$ ' + Number(v).toLocaleString('pt-BR'); }},grid:{drawOnChartArea:false}}
+      }
+    }
+  });
+}
+
+function renderGapChart() {
+  var ctx = document.getElementById('chartGap').getContext('2d');
+  if(chartGap) chartGap.destroy();
+  var series = getMonthlySeries();
+  var labels = series.map(function(point){ return point.label; });
+  var fatVsOrcC = series.map(function(point){ return point.fatC - point.orcC; });
+  var recVsFatC = series.map(function(point){ return point.recC - point.fatC; });
+  chartGap = new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels:labels,
+      datasets:[
+        {
+          label:'Faturamento - Orçamento',
+          data:fatVsOrcC.map(function(v){ return fromCents(v); }),
+          backgroundColor:fatVsOrcC.map(function(v){ return v >= 0 ? 'rgba(52,211,153,0.38)' : 'rgba(251,113,133,0.38)'; }),
+          borderColor:fatVsOrcC.map(function(v){ return v >= 0 ? 'rgba(52,211,153,0.78)' : 'rgba(251,113,133,0.78)'; }),
+          borderWidth:1,
+          borderRadius:8
+        },
+        {
+          label:'Recebido - Faturamento',
+          data:recVsFatC.map(function(v){ return fromCents(v); }),
+          backgroundColor:recVsFatC.map(function(v){ return v >= 0 ? 'rgba(0,198,224,0.38)' : 'rgba(252,211,77,0.34)'; }),
+          borderColor:recVsFatC.map(function(v){ return v >= 0 ? 'rgba(0,198,224,0.78)' : 'rgba(252,211,77,0.78)'; }),
+          borderWidth:1,
+          borderRadius:8
+        }
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{labels:{color:'#7E8BA8',font:{family:"'Plus Jakarta Sans'",size:11},usePointStyle:true,pointStyle:'rectRounded'}},
+        tooltip:{backgroundColor:'rgba(12,16,32,0.92)',borderColor:'rgba(255,255,255,0.08)',borderWidth:1,padding:12,cornerRadius:10,callbacks:{label:function(ctx){
+          var valueCents = toCents(ctx.parsed.y || 0);
+          return ctx.dataset.label + ': ' + fmtSignedCents(valueCents);
+        }}}
+      },
+      scales:{
+        x:{ticks:{color:'#3F4A63'},grid:{display:false}},
+        y:{ticks:{color:'#3F4A63',callback:function(v){ var cents = toCents(v || 0); return (cents >= 0 ? '+' : '-') + 'R$ ' + Number(Math.abs(v || 0)).toLocaleString('pt-BR'); }},grid:{color:'rgba(255,255,255,0.03)'}}
+      }
+    }
+  });
+}
+
+function renderForecastChart() {
+  var ctx = document.getElementById('chartForecast').getContext('2d');
+  if(chartForecast) chartForecast.destroy();
+  var series = getMonthlySeries();
+  if(!series.length) return;
+
+  var labels = series.map(function(point){ return point.label; });
+  var fatObservedC = series.map(function(point){ return point.fatC; });
+  var recObservedC = series.map(function(point){ return point.recC; });
+  var fatForecastC = linearForecastCents(fatObservedC, forecastHorizon);
+  var recForecastC = linearForecastCents(recObservedC, forecastHorizon);
+  for(var step=1;step<=forecastHorizon;step++) labels.push(futureMonthLabel(step));
+
+  var observedFat = fatObservedC.map(function(v){ return fromCents(v); });
+  var observedRec = recObservedC.map(function(v){ return fromCents(v); });
+  var projectedFat = new Array(Math.max(0, series.length - 1)).fill(null);
+  projectedFat.push(fromCents(fatObservedC[fatObservedC.length - 1]));
+  fatForecastC.forEach(function(v){ projectedFat.push(fromCents(v)); });
+  var projectedRec = new Array(Math.max(0, series.length - 1)).fill(null);
+  projectedRec.push(fromCents(recObservedC[recObservedC.length - 1]));
+  recForecastC.forEach(function(v){ projectedRec.push(fromCents(v)); });
+
+  chartForecast = new Chart(ctx,{
+    type:'line',
+    data:{
+      labels:labels,
+      datasets:[
+        {label:'Faturamento observado',data:observedFat.concat(new Array(forecastHorizon).fill(null)),borderColor:'rgba(0,198,224,0.95)',backgroundColor:'rgba(0,198,224,0.08)',tension:0.3,pointRadius:3,fill:true},
+        {label:'Recebido observado',data:observedRec.concat(new Array(forecastHorizon).fill(null)),borderColor:'rgba(52,211,153,0.95)',backgroundColor:'rgba(52,211,153,0.08)',tension:0.3,pointRadius:3,fill:true},
+        {label:'Faturamento projetado',data:projectedFat,borderColor:'rgba(56,189,248,0.95)',backgroundColor:'transparent',tension:0.28,borderDash:[8,5],pointRadius:2},
+        {label:'Recebido projetado',data:projectedRec,borderColor:'rgba(110,231,183,0.95)',backgroundColor:'transparent',tension:0.28,borderDash:[8,5],pointRadius:2}
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{labels:{color:'#7E8BA8',font:{family:"'Plus Jakarta Sans'",size:11},usePointStyle:true}},
+        tooltip:{backgroundColor:'rgba(12,16,32,0.92)',borderColor:'rgba(255,255,255,0.08)',borderWidth:1,padding:12,cornerRadius:10,callbacks:{label:function(ctx){
+          return ctx.dataset.label + ': R$ ' + Number(ctx.parsed.y || 0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+        }}}
+      },
+      scales:{
+        x:{ticks:{color:'#3F4A63'},grid:{display:false}},
+        y:{ticks:{color:'#3F4A63',callback:function(v){ return 'R$ ' + Number(v).toLocaleString('pt-BR'); }},grid:{color:'rgba(255,255,255,0.03)'}}
+      }
+    }
+  });
+}
+
+function renderInsights() {
+  var list = document.getElementById('insightList');
+  if(!list) return;
+  var series = getMonthlySeries();
+  if(!series.length) {
+    list.innerHTML = '<li class="insight-item"><span class="insight-bullet">i</span><span>Sem dados para gerar insights.</span></li>';
+    return;
+  }
+
+  var bestFat = series.reduce(function(best, item){ return item.fatC > best.fatC ? item : best; }, series[0]);
+  var lowestConv = series.reduce(function(worst, item){ return item.conversaoPct < worst.conversaoPct ? item : worst; }, series[0]);
+  var totals = series.reduce(function(acc, item){
+    acc.orcC += item.orcC;
+    acc.fatC += item.fatC;
+    acc.recC += item.recC;
+    return acc;
+  }, { orcC: 0, fatC: 0, recC: 0 });
+  var gapVsOrcC = totals.fatC - totals.orcC;
+  var inadTotalC = Math.max(0, totals.fatC - totals.recC);
+  var fatForecastTotalC = linearForecastCents(series.map(function(item){ return item.fatC; }), forecastHorizon).reduce(function(s, v){ return s + v; }, 0);
+  var recForecastTotalC = linearForecastCents(series.map(function(item){ return item.recC; }), forecastHorizon).reduce(function(s, v){ return s + v; }, 0);
+  var forecastConv = fatForecastTotalC > 0 ? (recForecastTotalC / fatForecastTotalC) * 100 : 0;
+  var trendSignal = gapVsOrcC >= 0 ? 'ritmo acima do orçamento' : 'ritmo abaixo do orçamento';
+
+  list.innerHTML = [
+    '<li class="insight-item"><span class="insight-bullet">🏆</span><span>Maior faturamento mensal em <strong>' + bestFat.label + '</strong>: <strong>' + fmt(fromCents(bestFat.fatC)) + '</strong>.</span></li>',
+    '<li class="insight-item"><span class="insight-bullet">⚠️</span><span>Pior conversão de caixa em <strong>' + lowestConv.label + '</strong>: <strong>' + Number(lowestConv.conversaoPct).toFixed(1).replace('.', ',') + '%</strong>.</span></li>',
+    '<li class="insight-item"><span class="insight-bullet">📊</span><span>Gap acumulado Faturamento vs Orçamento: <strong>' + fmtSignedCents(gapVsOrcC) + '</strong> (' + trendSignal + ').</span></li>',
+    '<li class="insight-item"><span class="insight-bullet">🧾</span><span>Inadimplência acumulada no período: <strong>' + fmt(fromCents(inadTotalC)) + '</strong>.</span></li>',
+    '<li class="insight-item"><span class="insight-bullet">🔮</span><span>Projeção próximos <strong>' + forecastHorizon + ' meses</strong>: Faturamento <strong>' + fmt(fromCents(fatForecastTotalC)) + '</strong>, Recebido <strong>' + fmt(fromCents(recForecastTotalC)) + '</strong>, conversão estimada <strong>' + Number(forecastConv).toFixed(1).replace('.', ',') + '%</strong>.</span></li>'
+  ].join('');
 }
 
 function renderInadimplencia() {
